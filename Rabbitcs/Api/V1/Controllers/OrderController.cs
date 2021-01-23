@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Rabbitcs.Api.V1.Dtos;
 
 namespace Rabbitcs.Controllers
 {
@@ -19,9 +20,9 @@ namespace Rabbitcs.Controllers
         }
 
         [HttpPost]
-        public async Task<ActionResult> Create()
+        public async Task<ActionResult> CreateOrder([FromBody] OrderRequest orderRequest)
         {
-            return "hello world!";
+            return StatusCode(201, new { Message = "Successfuly created!" });
         }
     }
 }

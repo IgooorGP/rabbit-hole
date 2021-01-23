@@ -1,0 +1,44 @@
+version: "3.5"
+services:
+  db:
+    image: postgres:10.1-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_password
+      POSTGRES_DB: app_db
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - 5672:5672
+      - 15672:15672
+    volumes:
+      - ./Tests/Resources/RabbitMQ:/etc/rabbitmq/
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    env_file:
+      - .env
+    ports:
+      - "${ASPNETCORE_SOCKET_BIND_PORT}:${ASPNETCORE_SOCKET_BIND_PORT}"
+    depends_on:
+      - db
+      - rabbitmq
+    command:
+      [
+        "./Scripts/wait-for-it.sh",
+        "db:5432",
+        "-t",
+        "120",
+        "--",
+        "./Scripts/wait-for-it.sh",
+        "rabbitmq:5672",
+        "-t",
+        "120",
+        "--",
+        "./Scripts/start-from-compose.sh",
+      ]

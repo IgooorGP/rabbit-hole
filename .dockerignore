@@ -1,0 +1,8 @@
+# Starts by excluding everything
+*
+
+# Includes main folders
+!Rabbitcs
+!Tests
+!Scripts
+!Rabbitcs.sln

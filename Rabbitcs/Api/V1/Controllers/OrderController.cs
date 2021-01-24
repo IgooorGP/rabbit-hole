@@ -29,7 +29,9 @@ namespace Rabbitcs.Controllers
         public async Task<ActionResult> GetAllOrders([FromQuery] PaginationParams paginationParams)
         {
             _logger.LogInformation("Fetching orders from database...");
-            var orders = await _db.Orders.OrderBy(order => order.Id)
+            var orders = await _db.Orders
+                .Include(order => order.OrderItems)
+                .OrderBy(order => order.Id)
                 .GetPage(paginationParams ??= new PaginationParams())
                 .ToListAsync();
 

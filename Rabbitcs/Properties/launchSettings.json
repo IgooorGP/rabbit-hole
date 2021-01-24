@@ -1,11 +1,13 @@
 {
-  "profiles": {
-    "Rabbitcs": {
-      "commandName": "Project",
-      "launchBrowser": false,
-      "launchUrl": "/",
-      "applicationUrl": "http://localhost:8080",
-      "environmentVariables": {}
+    "profiles": {
+        "Rabbitcs": {
+            "commandName": "Project",
+            "launchBrowser": false,
+            "launchUrl": "/",
+            "applicationUrl": "http://localhost:8080",
+            "environmentVariables": {
+                "ASPNETCORE_ENVIRONMENT": "Local"
+            }
+        }
     }
-  }
 }

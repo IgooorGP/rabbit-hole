@@ -11,6 +11,8 @@ namespace Rabbitcs.Infra
     //    The main SQL database context of the application.
     public class SqlContext : DbContext
     {
+        public DbSet<Order> Orders { get; set; } = null!;
+
         public SqlContext(DbContextOptions<SqlContext> options) : base(options)
         {
 

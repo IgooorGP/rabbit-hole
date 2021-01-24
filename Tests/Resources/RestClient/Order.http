@@ -1,5 +1,9 @@
-### gets all
+### gets all orders
 GET http://localhost:8080/api/v1/order
+Content-Type: application/json
+
+### gets paginated orders
+GET http://localhost:8080/api/v1/order?pageSize=2&pageNumber=1
 Content-Type: application/json
 
 ### creates a new order

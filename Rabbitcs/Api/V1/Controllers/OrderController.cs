@@ -1,4 +1,5 @@
-﻿using System.Threading.Tasks;
+﻿using System.Linq;
+using System.Threading.Tasks;
 using AutoMapper;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -25,11 +26,15 @@ namespace Rabbitcs.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult> GetAllOrders()
+        public async Task<ActionResult> GetAllOrders([FromQuery] PaginationParams paginationParams)
         {
-            var allOrders = await _db.Orders.Include(order => order.OrderItems).ToListAsync();
+            _logger.LogInformation("Fetching orders from database...");
+            var orders = await _db.Orders.OrderBy(order => order.Id)
+                .GetPage(paginationParams ??= new PaginationParams())
+                .ToListAsync();
 
-            return Ok(allOrders);
+            _logger.LogInformation("All good!");
+            return Ok(orders);
         }
 
         [HttpPost]

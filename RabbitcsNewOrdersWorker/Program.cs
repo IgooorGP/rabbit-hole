@@ -40,9 +40,9 @@ namespace RabbitcsNewOrdersWorker
         {
             var rabbitConnectionFactory = new ConnectionFactory();
             var config = BuildConfiguration();
-            var broker = new RabbitBus(rabbitConnectionFactory, config);
+            var rabbitBus = new RabbitBus(rabbitConnectionFactory, config);
 
-            broker.Subscribe("/queue/test-destination", Callback);
+            rabbitBus.Subscribe("/queue/test-destination", Callback);
         }
     }
 }

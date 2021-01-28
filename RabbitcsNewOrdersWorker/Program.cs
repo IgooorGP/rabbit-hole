@@ -1,18 +1,20 @@
-﻿
-using System;
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
 using RabbitHole.Api;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using Serilog;
+using Microsoft.Extensions.Logging;
 
 namespace RabbitcsNewOrdersWorker
 {
     class Program
     {
-        private static IConfigurationRoot BuildConfiguration()
+        public static IConfigurationRoot Configuration { get; set; }
+
+        private static void SetupConfiguration()
         {
             var configuration = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
@@ -20,7 +22,28 @@ namespace RabbitcsNewOrdersWorker
                 .AddEnvironmentVariables()
                 .Build();
 
-            return configuration;
+            Configuration = configuration;
+        }
+
+        private static void SetupSerilog()
+        {
+            // Serilog's global static property to be used with service collection as the ILogger of the project
+            Log.Logger = new LoggerConfiguration()
+                .ReadFrom.Configuration(Configuration)
+                .CreateLogger();
+        }
+
+        private static void ConfigureServices(IServiceCollection services)
+        {
+            // Config
+            services.AddSingleton(services => Configuration);
+
+            // Serilog
+            services.AddLogging(builder => builder.AddSerilog(dispose: true));
+
+            // RabbitMQ
+            services.AddSingleton<ConnectionFactory>();
+            services.AddSingleton<IRabbitBus, RabbitBus>();
         }
 
         public static void Callback(object sender, BasicDeliverEventArgs deliverArgs)
@@ -30,7 +53,7 @@ namespace RabbitcsNewOrdersWorker
             var message = Encoding.UTF8.GetString(body);
 
             // some logic
-            Console.WriteLine(" [x] Received {0}", message);
+            Log.Information("=^.^= Received {message}", message);  // Serilog's global logger
 
             // acks the msg
             channel.BasicAck(deliverArgs.DeliveryTag, false);
@@ -38,10 +61,20 @@ namespace RabbitcsNewOrdersWorker
 
         static void Main(string[] args)
         {
-            var rabbitConnectionFactory = new ConnectionFactory();
-            var config = BuildConfiguration();
-            var rabbitBus = new RabbitBus(rabbitConnectionFactory, config);
+            // Settings: appsettings.json and Serilog setup
+            SetupConfiguration();
+            SetupSerilog();
 
+            // DI setup
+            var services = new ServiceCollection();
+            ConfigureServices(services);
+
+            // Subscription
+            var serviceProvider = services.BuildServiceProvider();
+            var rabbitBus = serviceProvider.GetRequiredService<IRabbitBus>();
+            var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+
+            logger.LogInformation("Starting subscription...");
             rabbitBus.Subscribe("/queue/test-destination", Callback);
         }
     }

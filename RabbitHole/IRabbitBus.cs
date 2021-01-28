@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using RabbitMQ.Client;
+using RabbitMQ.Client.Events;
 
 namespace RabbitHole.Api
 {
@@ -9,13 +11,6 @@ namespace RabbitHole.Api
     public interface IRabbitBus
     {
         void Publish(Message message, string destination, Dictionary<string, object> headers = null, IModel channel = null);
-
-        // void Subscribe<TEvent, TEventHandler>()
-        //     where TEvent : Event
-        //     where TEventHandler : IEventHandler;
-
-        // void Unsubscribe<TEvent, TEventHandler>()
-        //     where TEvent : Event
-        //     where TEventHandler : IEventHandler;
+        void Subscribe(string destination, Action<object, BasicDeliverEventArgs> callback);
     }
 }

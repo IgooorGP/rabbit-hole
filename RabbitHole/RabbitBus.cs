@@ -20,10 +20,11 @@ namespace RabbitHole.Api
         private readonly IConfigurationRoot _projectConfig;
         private readonly ILogger<RabbitBus> _logger;
 
-        public RabbitBus(ConnectionFactory rabbitConnectionFactory = null, IConfigurationRoot config = null)
+        public RabbitBus(ILogger<RabbitBus> logger, ConnectionFactory rabbitConnectionFactory, IConfigurationRoot config)
         {
             _rabbitConnectionFactory = rabbitConnectionFactory;
             _projectConfig = config;
+            _logger = logger;
 
             ConnectToRabbit();
         }
@@ -32,7 +33,8 @@ namespace RabbitHole.Api
         /// </summary>
         private void ConnectToRabbit()
         {
-            // _logger.LogInformation("Setting RabbitMQ connection factory up...");
+            _logger.LogDebug("Setting RabbitMQ connection factory up...");
+
             _rabbitConnectionFactory.UserName = _projectConfig.GetValue<string>("RabbitMQ:UserName");
             _rabbitConnectionFactory.Password = _projectConfig.GetValue<string>("RabbitMQ:Password");
             _rabbitConnectionFactory.VirtualHost = _projectConfig.GetValue<string>("RabbitMQ:VHost");
@@ -40,10 +42,10 @@ namespace RabbitHole.Api
             _rabbitConnectionFactory.Port = _projectConfig.GetValue<int>("RabbitMQ:Port");
             _rabbitConnectionFactory.AutomaticRecoveryEnabled = _projectConfig.GetValue<bool>("RabbitMQ:AutomaticRecoveryEnabled");
 
-            Console.WriteLine("Connecting to RabbitMQ broker...");
+            _logger.LogDebug("Connecting to RabbitMQ broker...");
             _rabbitConnection = _rabbitConnectionFactory.CreateConnection();
 
-            Console.WriteLine("Connected to RabbitMQ broker! From here on, use channels!");
+            _logger.LogDebug("=^.^=: Connected to RabbitMQ!");
         }
         /// <summary>
         /// Publishes a message to a destination (queue or topic).
@@ -71,7 +73,7 @@ namespace RabbitHole.Api
             _subscriptionChannel.BasicQos(0, 1, false);
             var consumer = new EventingBasicConsumer(_subscriptionChannel);
 
-            Console.WriteLine(" [*] Waiting for messages.");
+            _logger.LogInformation("=^.^=: Waiting for messages...");
 
             // Creates a delegate (method pointer) to the callback param and adds this callback to be 
             // the handler for consumer.Received events
@@ -81,7 +83,7 @@ namespace RabbitHole.Api
             _subscriptionChannel.BasicConsume(queue: destination, consumer: consumer);
 
             // sustain main thread
-            Console.WriteLine(" Press [enter] to exit.");
+            _logger.LogInformation("=^.^=: Press [enter] to exit...");
             Console.ReadLine();
         }
         /// <summary>

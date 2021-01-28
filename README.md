@@ -1,4 +1,4 @@
-🐇 RabbitHole 🐇
+# 🐇 RabbitHole 🐇
 
 A playground for creating publishers and subscribers to a RabbitMQ broker using C#!
 

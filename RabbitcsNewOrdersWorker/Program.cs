@@ -75,7 +75,7 @@ namespace RabbitcsNewOrdersWorker
             var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
 
             logger.LogInformation("Starting subscription...");
-            rabbitBus.Subscribe("/queue/test-destination", Callback);
+            rabbitBus.Subscribe("Consumer.XPTO.Topic.SomeVirtualTopic", Callback);
         }
     }
 }

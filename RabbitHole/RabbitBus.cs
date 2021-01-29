@@ -28,6 +28,7 @@ namespace RabbitHole.Api
 
             ConnectToRabbit();
         }
+
         /// <summary>
         /// Connects to a RabbitMQ broker with configured variables.
         /// </summary>
@@ -47,6 +48,7 @@ namespace RabbitHole.Api
 
             _logger.LogDebug("=^.^=: Connected to RabbitMQ!");
         }
+
         /// <summary>
         /// Publishes a message to a destination (queue or topic).
         /// </summary>
@@ -56,7 +58,7 @@ namespace RabbitHole.Api
         public void Publish(Message message, string destination, Dictionary<string, object> headers = null, IModel channel = null)
         {
             // no channel was supplied, so a new one is created and then closed
-            if (channel == null)
+            if (channel is null)
             {
                 using var newChannel = _rabbitConnection.CreateModel();
                 ChannelPublish(message, destination, headers, newChannel);
@@ -67,17 +69,30 @@ namespace RabbitHole.Api
             // if a channel is supplied, uses it (ch can be in transaction mode)
             ChannelPublish(message, destination, headers, channel);
         }
+
         public void Subscribe(string destination, Action<object, BasicDeliverEventArgs> callback)
         {
             _subscriptionChannel = _rabbitConnection.CreateModel();
             _subscriptionChannel.BasicQos(0, 1, false);
             var consumer = new EventingBasicConsumer(_subscriptionChannel);
 
+            // should create queues fo            
             _logger.LogInformation("=^.^=: Waiting for messages...");
 
             // Creates a delegate (method pointer) to the callback param and adds this callback to be 
             // the handler for consumer.Received events
             consumer.Received += new EventHandler<BasicDeliverEventArgs>(callback);
+
+            if (DestinationParsingTools.IsConsumerTopicDestination(destination))
+            {
+                var (consumerName, topicName) = DestinationParsingTools
+                    .ParseConsumerTopicDestination(destination);
+
+                // requires a fanout exchange creation
+                _subscriptionChannel.ExchangeDeclare(topicName, ExchangeType.Fanout, true);
+                _subscriptionChannel.QueueDeclare(destination, true, false, false);   // queueName = destination
+                _subscriptionChannel.QueueBind(destination, topicName, topicName);
+            }
 
             // Appends the consumer to the connection's channel
             _subscriptionChannel.BasicConsume(queue: destination, consumer: consumer);
@@ -86,15 +101,12 @@ namespace RabbitHole.Api
             _logger.LogInformation("=^.^=: Press [enter] to exit...");
             Console.ReadLine();
         }
+
         /// <summary>
         /// Applies publishing rules to queues and topics.
         /// </summary>
         private void ChannelPublish(Message message, string destination, Dictionary<string, object> headers, IModel channel)
         {
-            // declares queue
-            if (destination.Contains("/queue"))
-                channel.QueueDeclare(destination, true, false, false);
-
             // message serialization
             var serializedMessage = JsonConvert.SerializeObject(message);
             var body = Encoding.UTF8.GetBytes(serializedMessage);
@@ -103,6 +115,24 @@ namespace RabbitHole.Api
             finalHeaders.Headers = headers;
             finalHeaders.ContentType = "application/json";
 
+            // topics ~ virtual topics in ActiveMQ
+            if (DestinationParsingTools.IsTopicDestination(destination))
+            {
+                // requires a fanout exchange creation
+                channel.ExchangeDeclare(destination, ExchangeType.Fanout, true);
+
+                // fanout for topics -> all bound queues get the messages
+                channel.BasicPublish(
+                    exchange: destination,
+                    routingKey: "",  // no routing key for fanout exchanges
+                    mandatory: true,
+                    basicProperties: finalHeaders,
+                    body: body);
+            }
+
+            // queues            
+            channel.QueueDeclare(destination, true, false, false);
+
             // queues -> default exchange handles it
             channel.BasicPublish(exchange: "",
                 routingKey: destination,
@@ -110,6 +140,7 @@ namespace RabbitHole.Api
                 basicProperties: finalHeaders,
                 body: body);
         }
+
         /// <summary>
         /// Creates a new channel in transaction mode and returns to it the user.
         /// </summary>

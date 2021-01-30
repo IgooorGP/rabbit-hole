@@ -17,7 +17,6 @@ namespace RabbitHole.Api
     {
         private readonly ConnectionFactory _rabbitConnectionFactory;
         private readonly IConnection _rabbitConnection;
-        private IModel? _subscriptionChannel;
         private readonly ConfigurationRabbitMQ _projectConfig;
         private readonly ILogger<RabbitBus> _logger;
 
@@ -57,38 +56,13 @@ namespace RabbitHole.Api
         public void Subscribe(string destination, Action<object?, BasicDeliverEventArgs> callback)
         {
             _logger.LogInformation("=^.^=: Creating a new channel for the subscription...");
+            var (_, channel) = SubscriptionStrategy.SubscribeConsumer(callback, destination, _rabbitConnection, _logger);
 
-            _subscriptionChannel = _rabbitConnection.CreateModel();
-            _subscriptionChannel.BasicQos(0, 1, false); // TODO: improve QoS setup
-            var consumer = new EventingBasicConsumer(_subscriptionChannel);
-
-            // Creates a delegate (method pointer) to the callback param and adds this callback to be 
-            // the handler for consumer.Received events
-            consumer.Received += new EventHandler<BasicDeliverEventArgs>(callback);
-
-            if (DestinationParsingTools.IsConsumerTopicDestination(destination))
-            {
-                _logger.LogInformation("=^.^=: Setting AMQP models for a topic...");
-
-                var (consumerQueueName, topicName) = DestinationParsingTools
-                    .ParseConsumerTopicDestination(destination);
-
-                // requires a fanout exchange creation
-                _subscriptionChannel.ExchangeDeclare(topicName, ExchangeType.Fanout, true);
-                _subscriptionChannel.QueueDeclare(consumerQueueName, true, false, false);
-                _subscriptionChannel.QueueBind(consumerQueueName, topicName, topicName);
-
-                // for topic consumers -> destination is changed to /topicQ/TopicName/ConsumerName
-                destination = consumerQueueName;
-            }
-
-            // Appends the consumer to the connection's channel
-            _subscriptionChannel.BasicConsume(queue: destination, consumer: consumer);
-            _logger.LogInformation("=^.^=: Waiting for messages...");
-
-            // sustain main thread
             _logger.LogInformation("=^.^=: Press [enter] to exit...");
             Console.ReadLine();
+
+            _logger.LogInformation("=^.^=: Bye!");
+            channel.Dispose();
         }
 
         /// <summary>
@@ -100,36 +74,17 @@ namespace RabbitHole.Api
             var createdNewChannel = channel is null;
             var ch = channel ?? _rabbitConnection.CreateModel();
 
-            // serialization and headers
-            var serializedMessage = JsonConvert.SerializeObject(message);
-            var body = Encoding.UTF8.GetBytes(serializedMessage);
+            // msg headers
             var finalHeaders = ch.CreateBasicProperties();
-
             finalHeaders.Headers = headers;
             finalHeaders.ContentType = "application/json";
 
-            // topics ~ virtual topics in ActiveMQ
-            if (DestinationParsingTools.IsTopicDestination(destination))
-            {
-                // requires a fanout exchange creation
-                ch.ExchangeDeclare(destination, ExchangeType.Fanout, true);
-                ch.BasicPublish(
-                    exchange: destination,  // fanout for the queue
-                    routingKey: "",  // no routing key for fanout exchanges
-                    mandatory: true,
-                    basicProperties: finalHeaders,
-                    body: body);
+            // msg body
+            var serializedMessage = JsonConvert.SerializeObject(message);
+            var body = Encoding.UTF8.GetBytes(serializedMessage);
 
-                return;
-            }
-
-            // queues only
-            ch.QueueDeclare(destination, true, false, false);
-            ch.BasicPublish(exchange: "",  // queues -> default exchange handles it
-                routingKey: destination,
-                mandatory: true,
-                basicProperties: finalHeaders,
-                body: body);
+            // selects appropriate publishing strategy
+            PublishingStrategy.Send(body, finalHeaders, destination, ch);
 
             // only dipose if the the lib created a new channel here
             if (createdNewChannel) ch.Dispose();

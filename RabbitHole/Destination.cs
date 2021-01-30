@@ -35,7 +35,7 @@ namespace RabbitHole
             var noPrefixTopicName = match.Groups["topicName"].Value;  // -> TopicName
 
             var prefixedTopicName = $"/topic/{noPrefixTopicName}";  // -> /topic/TopicName
-            var consumerQueueName = $"/qtopic/{noPrefixTopicName}/{consumerName}"; // -> /qtopic/TopicName/XPTO
+            var consumerQueueName = $"/topicQ/{noPrefixTopicName}/{consumerName}"; // -> /topicQ/TopicName/XPTO
 
             return new Tuple<string, string>(consumerQueueName, prefixedTopicName);
         }

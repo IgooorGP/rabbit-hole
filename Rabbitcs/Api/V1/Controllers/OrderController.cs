@@ -52,16 +52,16 @@ namespace Rabbitcs.Controllers
             await _db.Orders.AddAsync(newOrder);
 
             _logger.LogInformation("Opening RabbitMQ transaction...");
-            var rabbitTx = await _rabbitBus.BeginTx();
+            using var txRabbitChannel = _rabbitBus.BeginTransactionalChannel();
 
             _logger.LogInformation("Publishing new order...");
-            await _rabbitBus.PublishAsync(new { newOrder.Id, newOrder.Status }, "/topic/SomeVirtualTopic", channel: rabbitTx);
+            _rabbitBus.Publish(new { newOrder.Id, newOrder.Status }, "/topic/NewOrdersTopic", channel: txRabbitChannel);
 
             _logger.LogInformation("Commiting DB transaction...");
             await _db.SaveChangesAsync();
 
             _logger.LogInformation("Committing RabbitMQ transaction...");
-            await _rabbitBus.CommitTx(rabbitTx);
+            _rabbitBus.CommitTransactionalChannel(txRabbitChannel);
 
             _logger.LogInformation("All good!");
             return StatusCode(201, new { Message = "Successfuly created!" });

@@ -11,9 +11,9 @@ namespace RabbitHole.Api
     /// </summary>
     public interface IRabbitBus
     {
-        Task PublishAsync(object message, string destination, Dictionary<string, object> headers = null, IModel channel = null);
-        void Subscribe(string destination, Action<object, BasicDeliverEventArgs> callback);
-        Task<IModel> BeginTx();
-        Task CommitTx(IModel channel);
+        void Publish(object message, string destination, Dictionary<string, object>? headers = null, IModel? channel = null);
+        void Subscribe(string destination, Action<object?, BasicDeliverEventArgs> callback);
+        IModel BeginTransactionalChannel();
+        void CommitTransactionalChannel(IModel channel);
     }
 }

@@ -16,8 +16,8 @@ namespace RabbitHole.Api
     public class RabbitBus : IRabbitBus
     {
         private readonly ConnectionFactory _rabbitConnectionFactory;
-        private IModel _subscriptionChannel;
-        private IConnection _rabbitConnection;
+        private readonly IConnection _rabbitConnection;
+        private IModel? _subscriptionChannel;
         private readonly ConfigurationRabbitMQ _projectConfig;
         private readonly ILogger<RabbitBus> _logger;
 
@@ -27,14 +27,6 @@ namespace RabbitHole.Api
             _projectConfig = config;
             _logger = logger;
 
-            ConnectToRabbit();
-        }
-
-        /// <summary>
-        /// Connects to a RabbitMQ broker with configured variables.
-        /// </summary>
-        private void ConnectToRabbit()
-        {
             _logger.LogDebug("Setting RabbitMQ connection factory up...");
 
             _rabbitConnectionFactory.UserName = _projectConfig.UserName;
@@ -56,28 +48,19 @@ namespace RabbitHole.Api
         /// <param name="message">Message to be published</param>
         /// <param name="destination">Destination name</param>
         /// <param name="headers">Collection of headers (if any)</param>
-        public async Task PublishAsync(object message, string destination, Dictionary<string, object> headers = null, IModel channel = null)
+        public void Publish(object message, string destination, Dictionary<string, object>? headers = null, IModel? channel = null)
         {
-            // no channel was supplied, so a new one is created and then closed
-            if (channel is null)
-            {
-                using var newChannel = _rabbitConnection.CreateModel();
-                await ChannelPublish(message, destination, headers, newChannel);
-
-                return;
-            }
-
             // if a channel is supplied, uses it (ch can be in transaction mode)
-            await ChannelPublish(message, destination, headers, channel);
+            ChannelPublish(message, destination, headers, channel);
         }
 
-        public void Subscribe(string destination, Action<object, BasicDeliverEventArgs> callback)
+        public void Subscribe(string destination, Action<object?, BasicDeliverEventArgs> callback)
         {
-            _subscriptionChannel = _rabbitConnection.CreateModel();
-            _subscriptionChannel.BasicQos(0, 1, false);
-            var consumer = new EventingBasicConsumer(_subscriptionChannel);
+            _logger.LogInformation("=^.^=: Creating a new channel for the subscription...");
 
-            _logger.LogInformation("=^.^=: Waiting for messages...");
+            _subscriptionChannel = _rabbitConnection.CreateModel();
+            _subscriptionChannel.BasicQos(0, 1, false); // TODO: improve QoS setup
+            var consumer = new EventingBasicConsumer(_subscriptionChannel);
 
             // Creates a delegate (method pointer) to the callback param and adds this callback to be 
             // the handler for consumer.Received events
@@ -85,6 +68,8 @@ namespace RabbitHole.Api
 
             if (DestinationParsingTools.IsConsumerTopicDestination(destination))
             {
+                _logger.LogInformation("=^.^=: Setting AMQP models for a topic...");
+
                 var (consumerQueueName, topicName) = DestinationParsingTools
                     .ParseConsumerTopicDestination(destination);
 
@@ -99,6 +84,7 @@ namespace RabbitHole.Api
 
             // Appends the consumer to the connection's channel
             _subscriptionChannel.BasicConsume(queue: destination, consumer: consumer);
+            _logger.LogInformation("=^.^=: Waiting for messages...");
 
             // sustain main thread
             _logger.LogInformation("=^.^=: Press [enter] to exit...");
@@ -108,12 +94,16 @@ namespace RabbitHole.Api
         /// <summary>
         /// Applies publishing rules to queues and topics.
         /// </summary>
-        private async Task ChannelPublish(object message, string destination, Dictionary<string, object> headers, IModel channel)
+        private void ChannelPublish(object message, string destination, Dictionary<string, object>? headers, IModel? channel = null)
         {
-            // message serialization
+            // new channel if necessary for publishing
+            var createdNewChannel = channel is null;
+            var ch = channel ?? _rabbitConnection.CreateModel();
+
+            // serialization and headers
             var serializedMessage = JsonConvert.SerializeObject(message);
             var body = Encoding.UTF8.GetBytes(serializedMessage);
-            var finalHeaders = channel.CreateBasicProperties();
+            var finalHeaders = ch.CreateBasicProperties();
 
             finalHeaders.Headers = headers;
             finalHeaders.ContentType = "application/json";
@@ -121,68 +111,49 @@ namespace RabbitHole.Api
             // topics ~ virtual topics in ActiveMQ
             if (DestinationParsingTools.IsTopicDestination(destination))
             {
-                // run on background thread
-                await Task.Run(() =>
-                {
-                    // requires a fanout exchange creation
-                    channel.ExchangeDeclare(destination, ExchangeType.Fanout, true);
+                // requires a fanout exchange creation
+                ch.ExchangeDeclare(destination, ExchangeType.Fanout, true);
+                ch.BasicPublish(
+                    exchange: destination,  // fanout for the queue
+                    routingKey: "",  // no routing key for fanout exchanges
+                    mandatory: true,
+                    basicProperties: finalHeaders,
+                    body: body);
 
-                    // fanout for topics -> all bound queues get the messages
-                    channel.BasicPublish(
-                        exchange: destination,
-                        routingKey: "",  // no routing key for fanout exchanges
-                        mandatory: true,
-                        basicProperties: finalHeaders,
-                        body: body);
-                });
+                return;
             }
-            else
-            {
-                // run on background thread
-                await Task.Run(() =>
-                {
-                    // queues
-                    channel.QueueDeclare(destination, true, false, false);
 
-                    // queues -> default exchange handles it
-                    channel.BasicPublish(exchange: "",
-                        routingKey: destination,
-                        mandatory: true,
-                        basicProperties: finalHeaders,
-                        body: body);
-                });
-            }
+            // queues only
+            ch.QueueDeclare(destination, true, false, false);
+            ch.BasicPublish(exchange: "",  // queues -> default exchange handles it
+                routingKey: destination,
+                mandatory: true,
+                basicProperties: finalHeaders,
+                body: body);
+
+            // only dipose if the the lib created a new channel here
+            if (createdNewChannel) ch.Dispose();
         }
 
         /// <summary>
         /// Creates a new channel in transaction mode and returns to it the user.
         /// </summary>
         /// <returns>IModel - a channel in transaction mode</returns>
-        public async Task<IModel> BeginTx()
+        public IModel BeginTransactionalChannel()
         {
-            // create ch on background thread
-            var ch = await Task.Run(() =>
-            {
-                var channel = _rabbitConnection.CreateModel();
-                channel.TxSelect();
+            var channel = _rabbitConnection.CreateModel();
+            channel.TxSelect();
 
-                return channel;
-            });
-
-            return ch;
+            return channel;
         }
 
         /// <summary>
         /// Commits a transaction present on a channel in transaction mode.
         /// </summary>
         /// <returns>IModel - a channel in transaction mode</returns>
-        public async Task CommitTx(IModel channel)
+        public void CommitTransactionalChannel(IModel channel)
         {
-            // create ch on background thread
-            await Task.Run(() =>
-            {
-                channel.TxCommit();
-            });
+            channel.TxCommit();
         }
     }
 }

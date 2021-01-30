@@ -16,7 +16,6 @@ namespace RabbitcsNewOrdersWorker
         private static void SetupConfiguration()
         {
             var configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
                 .AddEnvironmentVariables()
                 .Build();
@@ -74,7 +73,7 @@ namespace RabbitcsNewOrdersWorker
             var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
 
             logger.LogInformation("Starting subscription...");
-            rabbitBus.Subscribe("Consumer.XPTO2.Topic.SomeVirtualTopic", Callback);
+            rabbitBus.Subscribe("Consumer.NewOrdersConsumer.Topic.NewOrdersTopic", Callback);
         }
     }
 }

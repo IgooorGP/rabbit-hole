@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Rabbitcs.Api.V1.Dtos;
 using Rabbitcs.Domain.Models;
 using Rabbitcs.Infra;
+using RabbitHole.Api;
 
 namespace Rabbitcs.Controllers
 {
@@ -15,11 +16,13 @@ namespace Rabbitcs.Controllers
     public class OrderController : ControllerBase
     {
         private readonly ILogger<OrderController> _logger;
+        private readonly IRabbitBus _rabbitBus;
         private readonly IMapper _mapper;
         private readonly SqlContext _db;
 
-        public OrderController(ILogger<OrderController> logger, IMapper mapper, SqlContext db)
+        public OrderController(ILogger<OrderController> logger, IRabbitBus rabbitBus, IMapper mapper, SqlContext db)
         {
+            _rabbitBus = rabbitBus;
             _logger = logger;
             _mapper = mapper;
             _db = db;
@@ -48,8 +51,17 @@ namespace Rabbitcs.Controllers
             _logger.LogInformation("Persisting new order...");
             await _db.Orders.AddAsync(newOrder);
 
-            _logger.LogInformation("Commiting transaction...");
+            _logger.LogInformation("Opening RabbitMQ transaction...");
+            var rabbitTx = await _rabbitBus.BeginTx();
+
+            _logger.LogInformation("Publishing new order...");
+            await _rabbitBus.PublishAsync(new { newOrder.Id, newOrder.Status }, "/topic/SomeVirtualTopic", channel: rabbitTx);
+
+            _logger.LogInformation("Commiting DB transaction...");
             await _db.SaveChangesAsync();
+
+            _logger.LogInformation("Committing RabbitMQ transaction...");
+            await _rabbitBus.CommitTx(rabbitTx);
 
             _logger.LogInformation("All good!");
             return StatusCode(201, new { Message = "Successfuly created!" });

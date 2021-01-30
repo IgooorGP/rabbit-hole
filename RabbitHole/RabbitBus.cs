@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -17,12 +18,12 @@ namespace RabbitHole.Api
         private readonly ConnectionFactory _rabbitConnectionFactory;
         private IModel _subscriptionChannel;
         private IConnection _rabbitConnection;
-        private readonly IConfigurationRoot _projectConfig;
+        private readonly ConfigurationRabbitMQ _projectConfig;
         private readonly ILogger<RabbitBus> _logger;
 
-        public RabbitBus(ILogger<RabbitBus> logger, ConnectionFactory rabbitConnectionFactory, IConfigurationRoot config)
+        public RabbitBus(ILogger<RabbitBus> logger, ConfigurationRabbitMQ config)
         {
-            _rabbitConnectionFactory = rabbitConnectionFactory;
+            _rabbitConnectionFactory = new ConnectionFactory();
             _projectConfig = config;
             _logger = logger;
 
@@ -36,12 +37,12 @@ namespace RabbitHole.Api
         {
             _logger.LogDebug("Setting RabbitMQ connection factory up...");
 
-            _rabbitConnectionFactory.UserName = _projectConfig.GetValue<string>("RabbitMQ:UserName");
-            _rabbitConnectionFactory.Password = _projectConfig.GetValue<string>("RabbitMQ:Password");
-            _rabbitConnectionFactory.VirtualHost = _projectConfig.GetValue<string>("RabbitMQ:VHost");
-            _rabbitConnectionFactory.HostName = _projectConfig.GetValue<string>("RabbitMQ:HostName");
-            _rabbitConnectionFactory.Port = _projectConfig.GetValue<int>("RabbitMQ:Port");
-            _rabbitConnectionFactory.AutomaticRecoveryEnabled = _projectConfig.GetValue<bool>("RabbitMQ:AutomaticRecoveryEnabled");
+            _rabbitConnectionFactory.UserName = _projectConfig.UserName;
+            _rabbitConnectionFactory.Password = _projectConfig.Password;
+            _rabbitConnectionFactory.VirtualHost = _projectConfig.VHost;
+            _rabbitConnectionFactory.HostName = _projectConfig.HostName;
+            _rabbitConnectionFactory.Port = _projectConfig.Port;
+            _rabbitConnectionFactory.AutomaticRecoveryEnabled = _projectConfig.AutomaticRecoveryEnabled;
 
             _logger.LogDebug("Connecting to RabbitMQ broker...");
             _rabbitConnection = _rabbitConnectionFactory.CreateConnection();
@@ -55,19 +56,19 @@ namespace RabbitHole.Api
         /// <param name="message">Message to be published</param>
         /// <param name="destination">Destination name</param>
         /// <param name="headers">Collection of headers (if any)</param>
-        public void Publish(Message message, string destination, Dictionary<string, object> headers = null, IModel channel = null)
+        public async Task PublishAsync(object message, string destination, Dictionary<string, object> headers = null, IModel channel = null)
         {
             // no channel was supplied, so a new one is created and then closed
             if (channel is null)
             {
                 using var newChannel = _rabbitConnection.CreateModel();
-                ChannelPublish(message, destination, headers, newChannel);
+                await ChannelPublish(message, destination, headers, newChannel);
 
                 return;
             }
 
             // if a channel is supplied, uses it (ch can be in transaction mode)
-            ChannelPublish(message, destination, headers, channel);
+            await ChannelPublish(message, destination, headers, channel);
         }
 
         public void Subscribe(string destination, Action<object, BasicDeliverEventArgs> callback)
@@ -76,7 +77,6 @@ namespace RabbitHole.Api
             _subscriptionChannel.BasicQos(0, 1, false);
             var consumer = new EventingBasicConsumer(_subscriptionChannel);
 
-            // should create queues fo            
             _logger.LogInformation("=^.^=: Waiting for messages...");
 
             // Creates a delegate (method pointer) to the callback param and adds this callback to be 
@@ -85,13 +85,16 @@ namespace RabbitHole.Api
 
             if (DestinationParsingTools.IsConsumerTopicDestination(destination))
             {
-                var (consumerName, topicName) = DestinationParsingTools
+                var (consumerQueueName, topicName) = DestinationParsingTools
                     .ParseConsumerTopicDestination(destination);
 
                 // requires a fanout exchange creation
                 _subscriptionChannel.ExchangeDeclare(topicName, ExchangeType.Fanout, true);
-                _subscriptionChannel.QueueDeclare(destination, true, false, false);   // queueName = destination
-                _subscriptionChannel.QueueBind(destination, topicName, topicName);
+                _subscriptionChannel.QueueDeclare(consumerQueueName, true, false, false);
+                _subscriptionChannel.QueueBind(consumerQueueName, topicName, topicName);
+
+                // for topic consumers -> destination is changed to /topicQ/TopicName/ConsumerName
+                destination = consumerQueueName;
             }
 
             // Appends the consumer to the connection's channel
@@ -105,7 +108,7 @@ namespace RabbitHole.Api
         /// <summary>
         /// Applies publishing rules to queues and topics.
         /// </summary>
-        private void ChannelPublish(Message message, string destination, Dictionary<string, object> headers, IModel channel)
+        private async Task ChannelPublish(object message, string destination, Dictionary<string, object> headers, IModel channel)
         {
             // message serialization
             var serializedMessage = JsonConvert.SerializeObject(message);
@@ -118,39 +121,68 @@ namespace RabbitHole.Api
             // topics ~ virtual topics in ActiveMQ
             if (DestinationParsingTools.IsTopicDestination(destination))
             {
-                // requires a fanout exchange creation
-                channel.ExchangeDeclare(destination, ExchangeType.Fanout, true);
+                // run on background thread
+                await Task.Run(() =>
+                {
+                    // requires a fanout exchange creation
+                    channel.ExchangeDeclare(destination, ExchangeType.Fanout, true);
 
-                // fanout for topics -> all bound queues get the messages
-                channel.BasicPublish(
-                    exchange: destination,
-                    routingKey: "",  // no routing key for fanout exchanges
-                    mandatory: true,
-                    basicProperties: finalHeaders,
-                    body: body);
+                    // fanout for topics -> all bound queues get the messages
+                    channel.BasicPublish(
+                        exchange: destination,
+                        routingKey: "",  // no routing key for fanout exchanges
+                        mandatory: true,
+                        basicProperties: finalHeaders,
+                        body: body);
+                });
             }
+            else
+            {
+                // run on background thread
+                await Task.Run(() =>
+                {
+                    // queues
+                    channel.QueueDeclare(destination, true, false, false);
 
-            // queues            
-            channel.QueueDeclare(destination, true, false, false);
-
-            // queues -> default exchange handles it
-            channel.BasicPublish(exchange: "",
-                routingKey: destination,
-                mandatory: true,
-                basicProperties: finalHeaders,
-                body: body);
+                    // queues -> default exchange handles it
+                    channel.BasicPublish(exchange: "",
+                        routingKey: destination,
+                        mandatory: true,
+                        basicProperties: finalHeaders,
+                        body: body);
+                });
+            }
         }
 
         /// <summary>
         /// Creates a new channel in transaction mode and returns to it the user.
         /// </summary>
         /// <returns>IModel - a channel in transaction mode</returns>
-        public IModel BeginTx()
+        public async Task<IModel> BeginTx()
         {
-            var channel = _rabbitConnection.CreateModel();
-            channel.TxSelect();
+            // create ch on background thread
+            var ch = await Task.Run(() =>
+            {
+                var channel = _rabbitConnection.CreateModel();
+                channel.TxSelect();
 
-            return channel;
+                return channel;
+            });
+
+            return ch;
+        }
+
+        /// <summary>
+        /// Commits a transaction present on a channel in transaction mode.
+        /// </summary>
+        /// <returns>IModel - a channel in transaction mode</returns>
+        public async Task CommitTx(IModel channel)
+        {
+            // create ch on background thread
+            await Task.Run(() =>
+            {
+                channel.TxCommit();
+            });
         }
     }
 }

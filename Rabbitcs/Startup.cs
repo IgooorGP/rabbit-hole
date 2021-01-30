@@ -14,6 +14,7 @@ using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
 using Rabbitcs.Api.V1.Dtos;
 using Rabbitcs.Infra;
+using RabbitHole.Api;
 
 namespace Rabbitcs
 {
@@ -44,9 +45,14 @@ namespace Rabbitcs
                 options.SerializerSettings.Converters.Add(new StringEnumConverter { NamingStrategy = new CamelCaseNamingStrategy() });
             });
 
+            // RabbitMQ Client
+            services.AddSingleton(Configuration.GetSection("RabbitMQ").Get<ConfigurationRabbitMQ>());
+            services.AddSingleton<IRabbitBus, RabbitBus>();
+
             // Fluent validation for incoming DTOs
             services.AddMvc().AddFluentValidation();
             services.AddTransient<IValidator<OrderRequest>, OrderRequestValidator>();
+            services.AddSingleton<IRabbitBus, RabbitBus>();
 
             // AutoMapper for DTO to domain and vice-versa mappings
             services.AddAutoMapper(typeof(Startup));

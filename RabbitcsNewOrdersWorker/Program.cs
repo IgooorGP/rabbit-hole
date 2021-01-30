@@ -3,7 +3,6 @@ using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using RabbitHole.Api;
-using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using Serilog;
 using Microsoft.Extensions.Logging;
@@ -42,7 +41,7 @@ namespace RabbitcsNewOrdersWorker
             services.AddLogging(builder => builder.AddSerilog(dispose: true));
 
             // RabbitMQ
-            services.AddSingleton<ConnectionFactory>();
+            services.AddSingleton(Configuration.GetSection("RabbitMQ").Get<ConfigurationRabbitMQ>());
             services.AddSingleton<IRabbitBus, RabbitBus>();
         }
 
@@ -59,7 +58,7 @@ namespace RabbitcsNewOrdersWorker
             channel.BasicAck(deliverArgs.DeliveryTag, false);
         }
 
-        static void Main(string[] args)
+        static void Main()
         {
             // Settings: appsettings.json and Serilog setup
             SetupConfiguration();
@@ -75,7 +74,7 @@ namespace RabbitcsNewOrdersWorker
             var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
 
             logger.LogInformation("Starting subscription...");
-            rabbitBus.Subscribe("Consumer.XPTO.Topic.SomeVirtualTopic", Callback);
+            rabbitBus.Subscribe("Consumer.XPTO2.Topic.SomeVirtualTopic", Callback);
         }
     }
 }

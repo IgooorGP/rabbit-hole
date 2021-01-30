@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
@@ -10,7 +11,9 @@ namespace RabbitHole.Api
     /// </summary>
     public interface IRabbitBus
     {
-        void Publish(Message message, string destination, Dictionary<string, object> headers = null, IModel channel = null);
+        Task PublishAsync(object message, string destination, Dictionary<string, object> headers = null, IModel channel = null);
         void Subscribe(string destination, Action<object, BasicDeliverEventArgs> callback);
+        Task<IModel> BeginTx();
+        Task CommitTx(IModel channel);
     }
 }

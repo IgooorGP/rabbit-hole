@@ -24,26 +24,6 @@ namespace RabbitHole
             return CONSUMER_TOPIC_PATTERN.Match(destination).Success;
         }
 
-        public static string ParseQueueDestination(string destination)
-        {
-            var match = QUEUE_PATTERN.Match(destination);
-
-            if (!match.Success)
-                throw new ParseDestinationException($"Unable to parse queue destination: {destination}");
-
-            return match.Groups["queueName"].Value;
-        }
-
-        public static string ParseTopicDestination(string destination)
-        {
-            var match = TOPIC_PATTERN.Match(destination);
-
-            if (!match.Success)
-                throw new ParseDestinationException($"Unable to parse topic destination: {destination}");
-
-            return match.Groups["topicName"].Value;
-        }
-
         public static Tuple<string, string> ParseConsumerTopicDestination(string destination)
         {
             var match = CONSUMER_TOPIC_PATTERN.Match(destination);
@@ -51,10 +31,13 @@ namespace RabbitHole
             if (!match.Success)
                 throw new ParseDestinationException($"Unable to parse consumer topic destination: {destination}");
 
-            var consumerName = match.Groups["consumerName"].Value;
-            var topicName = match.Groups["topicName"].Value;
+            var consumerName = match.Groups["consumerName"].Value;  // -> XPTO
+            var noPrefixTopicName = match.Groups["topicName"].Value;  // -> TopicName
 
-            return new Tuple<string, string>(consumerName, topicName);
+            var prefixedTopicName = $"/topic/{noPrefixTopicName}";  // -> /topic/TopicName
+            var consumerQueueName = $"/qtopic/{noPrefixTopicName}/{consumerName}"; // -> /qtopic/TopicName/XPTO
+
+            return new Tuple<string, string>(consumerQueueName, prefixedTopicName);
         }
     }
 }
